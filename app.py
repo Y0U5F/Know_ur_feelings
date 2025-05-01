@@ -61,6 +61,22 @@ st.markdown("""
     .start-button.active {
         background-color: #f44336;
     }
+    .emotion-display {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        margin-top: 10px;
+        text-align: center;
+    }
+    .emotion-text {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+    }
+    .emotion-score {
+        font-size: 18px;
+        color: #666;
+    }
     @media (max-width: 600px) {
         .video-container {
             width: 100%;
@@ -72,6 +88,12 @@ st.markdown("""
         }
         .stButton > button {
             width: 100%;
+        }
+        .emotion-text {
+            font-size: 20px;
+        }
+        .emotion-score {
+            font-size: 16px;
         }
     }
     </style>
@@ -91,6 +113,7 @@ with st.sidebar:
     - تأكد من السماح للكاميرا في المتصفح
     - استخدم كاميرا أمامية للهاتف
     - تأكد من وجود إضاءة جيدة
+    - حافظ على مسافة مناسبة من الكاميرا
     """)
 
 # عنوان التطبيق
@@ -100,21 +123,27 @@ st.title("كشف المشاعر في الوقت الفعلي")
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
     st.session_state.detector = None
+    st.session_state.last_emotion = None
+    st.session_state.last_score = None
 
 # زر البدء
 if st.button("بدء الكشف عن المشاعر" if not st.session_state.is_running else "إيقاف الكشف عن المشاعر"):
     st.session_state.is_running = not st.session_state.is_running
     if not st.session_state.is_running:
         st.session_state.detector = None
+        st.session_state.last_emotion = None
+        st.session_state.last_score = None
 
-# منطقة عرض الفيديو
+# منطقة عرض الفيديو والنتائج
 video_placeholder = st.empty()
+result_placeholder = st.empty()
 
 if st.session_state.is_running:
     try:
         # إنشاء كائن الكشف عن المشاعر فقط عند بدء التشغيل
         if st.session_state.detector is None:
             st.session_state.detector = FER(mtcnn=True)
+            st.info("جاري تهيئة نموذج الكشف عن المشاعر...")
         
         # استخدام ميزة الكاميرا المدمجة في Streamlit
         img_file_buffer = st.camera_input("كاميرا الكشف عن المشاعر")
@@ -128,22 +157,46 @@ if st.session_state.is_running:
                 # الكشف عن المشاعر
                 result = st.session_state.detector.detect_emotions(cv2_img)
                 
-                # معالجة النتائج
-                for face in result:
-                    x, y, w, h = face['box']
-                    cv2.rectangle(cv2_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                    emotions = face['emotions']
-                    dominant_emotion = max(emotions, key=emotions.get)
-                    emotion_score = emotions[dominant_emotion]
-                    text = f"{dominant_emotion}: {emotion_score:.2f}"
-                    cv2.putText(cv2_img, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                if result:
+                    # معالجة النتائج
+                    for face in result:
+                        x, y, w, h = face['box']
+                        cv2.rectangle(cv2_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                        emotions = face['emotions']
+                        dominant_emotion = max(emotions, key=emotions.get)
+                        emotion_score = emotions[dominant_emotion]
+                        
+                        # تحديث حالة المشاعر
+                        st.session_state.last_emotion = dominant_emotion
+                        st.session_state.last_score = emotion_score
+                        
+                        # عرض النص على الصورة
+                        text = f"{dominant_emotion}: {emotion_score:.2f}"
+                        cv2.putText(cv2_img, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-                # تحويل الإطار إلى صيغة RGB لعرضه في Streamlit
-                frame_rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
-                video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                    # تحويل الإطار إلى صيغة RGB لعرضه في Streamlit
+                    frame_rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
+                    video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                    
+                    # عرض النتائج في منطقة منفصلة
+                    with result_placeholder.container():
+                        st.markdown("""
+                            <div class="emotion-display">
+                                <div class="emotion-text">المشاعر المكتشفة</div>
+                                <div class="emotion-score">
+                                    المشاعر السائدة: {} (ثقة: {:.2f}%)
+                                </div>
+                            </div>
+                        """.format(
+                            st.session_state.last_emotion,
+                            st.session_state.last_score * 100
+                        ), unsafe_allow_html=True)
+                else:
+                    result_placeholder.warning("لم يتم اكتشاف أي وجه في الصورة. يرجى التأكد من أن وجهك واضح في الكاميرا.")
 
             except Exception as e:
                 st.error(f"خطأ في معالجة الإطار: {str(e)}")
+                result_placeholder.empty()
 
     except Exception as e:
         st.error(f"خطأ في تهيئة نموذج الكشف عن المشاعر: {str(e)}")
@@ -151,6 +204,7 @@ if st.session_state.is_running:
         st.session_state.detector = None
 else:
     video_placeholder.empty()
+    result_placeholder.empty()
 
 # إضافة معلومات إضافية في الأسفل
 st.markdown("""
@@ -164,4 +218,5 @@ st.markdown("""
     - للتجربة على Streamlit Cloud، يرجى استخدام هاتفك المحمول
     - تأكد من السماح للكاميرا في متصفح هاتفك
     - استخدم كاميرا الهاتف الأمامية للحصول على أفضل النتائج
+    - حافظ على مسافة مناسبة من الكاميرا (حوالي 30-50 سم)
 """)
