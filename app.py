@@ -24,11 +24,16 @@ RTC_CONFIGURATION = RTCConfiguration({
 class EmotionDetector(VideoProcessorBase):
     def __init__(self):
         super().__init__()
-        self.detector = FER(mtcnn=True)  # استخدام MTCNN بدقة أعلى
+        self.detector = FER(mtcnn=False)  # mtcnn=False لتحسين الأداء
         self.emotion_queue = queue.Queue()
-        self.frame_skip = 2  # معالجة إطار من كل 3
+        self.frame_skip = 2
+        self.frame_count = 0
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        self.frame_count += 1
+        if self.frame_count % self.frame_skip != 0:
+            return frame
+
         img = frame.to_ndarray(format="bgr24")
         img = cv2.resize(img, (640, 480))
         
@@ -80,7 +85,6 @@ def main():
         st.info("- Face the camera directly")
         st.info("- Remove glasses if possible")
     
-    # منطقة عرض النتائج
     result_container = st.empty()
     stats_container = st.empty()
     
@@ -92,7 +96,7 @@ def main():
             "video": {"width": 640, "height": 480, "frameRate": 15},
             "audio": False
         },
-        async_processing=True
+        async_processing=False  # تعطيل المعالجة غير المتزامنة لتفادي التجميد
     )
     
     # معالجة النتائج
@@ -101,9 +105,8 @@ def main():
         fps = 0
         frame_count = 0
         
-        while True:
+        while ctx.state.playing:
             try:
-                # عرض النتائج
                 if enable_detection:
                     try:
                         result = ctx.video_processor.emotion_queue.get(timeout=1.0)
@@ -113,7 +116,6 @@ def main():
                     except queue.Empty:
                         pass
                 
-                # عرض إحصائيات الأداء
                 if show_stats:
                     frame_count += 1
                     if time.time() - last_update >= 1.0:
@@ -122,7 +124,6 @@ def main():
                             st.caption(f"**Performance:** {fps:.1f} FPS")
                         frame_count = 0
                         last_update = time.time()
-                        
             except Exception as e:
                 st.error(f"Application error: {str(e)}")
                 break
