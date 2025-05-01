@@ -4,129 +4,64 @@ import cv2
 from fer import FER
 import numpy as np
 import av
-import queue
-import time
 import os
 
-# إعدادات البيئة
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# تعطيل تحذيرات TensorFlow غير الضرورية
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# تكوين WebRTC
-RTC_CONFIGURATION = RTCConfiguration({
-    "iceServers": [
+# إعداد RTC Configuration مع STUN و TURN server
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [
         {"urls": ["stun:stun.l.google.com:19302"]},
-        {"urls": ["stun:stun1.l.google.com:19302"]},
-        {"urls": ["stun:stun2.l.google.com:19302"]}
-    ]
-})
+        {
+            "urls": ["turn:openrelay.metered.ca:80", "turn:openrelay.metered.ca:443"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject"
+        }
+    ]}
+)
 
+# إنشاء كائن الكشف عن المشاعر
+detector = FER(mtcnn=False)
+
+# تعريف فئة لمعالجة الفيديو
 class EmotionDetector(VideoProcessorBase):
     def __init__(self):
-        super().__init__()
-        self.detector = FER(mtcnn=False)  # mtcnn=False لتحسين الأداء
-        self.emotion_queue = queue.Queue()
-        self.frame_skip = 2
-        self.frame_count = 0
+        self.detector = detector
 
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        self.frame_count += 1
-        if self.frame_count % self.frame_skip != 0:
+    def recv(self, frame):
+        try:
+            # تحويل الإطار إلى صورة OpenCV
+            img = frame.to_ndarray(format="bgr24")
+            img = cv2.resize(img, (640, 480))
+
+            # الكشف عن المشاعر
+            result = self.detector.detect_emotions(img)
+
+            # معالجة النتائج
+            for face in result:
+                x, y, w, h = face['box']
+                emotions = face['emotions']
+                # رسم مستطيل حول الوجه
+                cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                # طباعة أكثر شعور بارز
+                dominant_emotion = max(emotions, key=emotions.get)
+                cv2.putText(img, dominant_emotion, (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+        except Exception as e:
+            print(f"Error during frame processing: {e}")
             return frame
 
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.resize(img, (640, 480))
-        
-        try:
-            results = self.detector.detect_emotions(img)
-            for result in results:
-                x, y, w, h = result["box"]
-                emotions = result["emotions"]
-                dominant_emotion = max(emotions.items(), key=lambda x: x[1])
-                
-                # رسم النتائج على الإطار
-                cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(
-                    img, 
-                    f"{dominant_emotion[0]}: {dominant_emotion[1]:.2f}", 
-                    (x, y-10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 
-                    0.7, (0, 255, 0), 2
-                )
-                
-                self.emotion_queue.put({
-                    "emotion": dominant_emotion[0],
-                    "score": dominant_emotion[1],
-                    "box": result["box"]
-                })
-                
-        except Exception as e:
-            st.error(f"Detection error: {str(e)}")
-        
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+# واجهة Streamlit
+st.title("🎭 Emotion Detection App")
+st.write("ابدأ الكاميرا وسنحاول التعرف على مشاعرك")
 
-def main():
-    st.set_page_config(
-        page_title="Real-Time Emotion Detection",
-        page_icon="😊",
-        layout="centered"
-    )
-    
-    st.title("🎭 Real-Time Emotion Detection")
-    st.caption("Powered by Streamlit, FER and OpenCV")
-    
-    with st.sidebar:
-        st.header("⚙️ Settings")
-        enable_detection = st.checkbox("Enable Detection", True)
-        show_stats = st.checkbox("Show Performance Stats", False)
-        st.markdown("---")
-        st.info("For best results:")
-        st.info("- Ensure good lighting")
-        st.info("- Face the camera directly")
-        st.info("- Remove glasses if possible")
-    
-    result_container = st.empty()
-    stats_container = st.empty()
-    
-    ctx = webrtc_streamer(
-        key="emotion-detector",
-        video_processor_factory=EmotionDetector if enable_detection else None,
-        rtc_configuration=RTC_CONFIGURATION,
-        media_stream_constraints={
-            "video": {"width": 640, "height": 480, "frameRate": 15},
-            "audio": False
-        },
-        async_processing=False  # تعطيل المعالجة غير المتزامنة لتفادي التجميد
-    )
-    
-    # معالجة النتائج
-    if ctx.video_processor:
-        last_update = time.time()
-        fps = 0
-        frame_count = 0
-        
-        while ctx.state.playing:
-            try:
-                if enable_detection:
-                    try:
-                        result = ctx.video_processor.emotion_queue.get(timeout=1.0)
-                        with result_container.container():
-                            st.success(f"**Detected Emotion:** {result['emotion']}")
-                            st.metric("Confidence", f"{result['score']*100:.1f}%")
-                    except queue.Empty:
-                        pass
-                
-                if show_stats:
-                    frame_count += 1
-                    if time.time() - last_update >= 1.0:
-                        fps = frame_count / (time.time() - last_update)
-                        with stats_container.container():
-                            st.caption(f"**Performance:** {fps:.1f} FPS")
-                        frame_count = 0
-                        last_update = time.time()
-            except Exception as e:
-                st.error(f"Application error: {str(e)}")
-                break
-
-if __name__ == "__main__":
-    main()
+# تشغيل الكاميرا ومعالجة الفيديو
+webrtc_streamer(
+    key="emotion-detection",
+    video_processor_factory=EmotionDetector,
+    rtc_configuration=RTC_CONFIGURATION
+)
