@@ -5,139 +5,126 @@ from fer import FER
 import numpy as np
 import av
 import queue
-import time  # تمت إضافته هنا
-from typing import Union, Optional
-
-# تعطيل تحذيرات TensorFlow غير الضرورية
+import time
 import os
+
+# إعدادات البيئة
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# إعداد RTC Configuration مع خوادم STUN متعددة
+# تكوين WebRTC
 RTC_CONFIGURATION = RTCConfiguration({
     "iceServers": [
         {"urls": ["stun:stun.l.google.com:19302"]},
         {"urls": ["stun:stun1.l.google.com:19302"]},
         {"urls": ["stun:stun2.l.google.com:19302"]}
-    ],
-    "iceTransportPolicy": "all"
+    ]
 })
 
 class EmotionDetector(VideoProcessorBase):
     def __init__(self):
         super().__init__()
-        self.detector = FER(mtcnn=False)
+        self.detector = FER(mtcnn=True)  # استخدام MTCNN بدقة أعلى
         self.emotion_queue = queue.Queue()
-        self.frame_count = 0
-        self.skip_frames = 2
+        self.frame_skip = 2  # معالجة إطار من كل 3
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        self.frame_count += 1
-        if self.frame_count % (self.skip_frames + 1) != 0:
-            return frame
-
         img = frame.to_ndarray(format="bgr24")
         img = cv2.resize(img, (640, 480))
         
         try:
-            result = self.detector.detect_emotions(img)
-            
-            for face in result:
-                x, y, w, h = face['box']
-                emotions = face['emotions']
+            results = self.detector.detect_emotions(img)
+            for result in results:
+                x, y, w, h = result["box"]
+                emotions = result["emotions"]
                 dominant_emotion = max(emotions.items(), key=lambda x: x[1])
                 
+                # رسم النتائج على الإطار
                 cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                text = f"{dominant_emotion[0]}: {dominant_emotion[1]:.2f}"
-                cv2.putText(img, text, (x, y-10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(
+                    img, 
+                    f"{dominant_emotion[0]}: {dominant_emotion[1]:.2f}", 
+                    (x, y-10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.7, (0, 255, 0), 2
+                )
                 
                 self.emotion_queue.put({
-                    'emotion': dominant_emotion[0],
-                    'score': dominant_emotion[1],
-                    'box': face['box']
+                    "emotion": dominant_emotion[0],
+                    "score": dominant_emotion[1],
+                    "box": result["box"]
                 })
                 
         except Exception as e:
-            st.error(f"Error in emotion detection: {str(e)}")
-
+            st.error(f"Detection error: {str(e)}")
+        
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 def main():
     st.set_page_config(
         page_title="Real-Time Emotion Detection",
         page_icon="😊",
-        layout="wide"
+        layout="centered"
     )
     
-    st.title("Real-Time Emotion Detection")
-    st.markdown("""
-    <style>
-    .st-emotion-box {
-        border: 2px solid #4CAF50;
-        border-radius: 5px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.write("This app detects emotions in real-time using your webcam.")
+    st.title("🎭 Real-Time Emotion Detection")
+    st.caption("Powered by Streamlit, FER and OpenCV")
     
     with st.sidebar:
-        st.header("Settings")
-        detect_emotions = st.checkbox("Enable Emotion Detection", True)
-        show_fps = st.checkbox("Show FPS", False)
+        st.header("⚙️ Settings")
+        enable_detection = st.checkbox("Enable Detection", True)
+        show_stats = st.checkbox("Show Performance Stats", False)
         st.markdown("---")
-        st.info("Make sure your face is clearly visible in the camera.")
+        st.info("For best results:")
+        st.info("- Ensure good lighting")
+        st.info("- Face the camera directly")
+        st.info("- Remove glasses if possible")
+    
+    # منطقة عرض النتائج
+    result_container = st.empty()
+    stats_container = st.empty()
     
     ctx = webrtc_streamer(
-        key="emotion-detection",
-        video_processor_factory=EmotionDetector if detect_emotions else None,
+        key="emotion-detector",
+        video_processor_factory=EmotionDetector if enable_detection else None,
         rtc_configuration=RTC_CONFIGURATION,
         media_stream_constraints={
-            "video": {
-                "width": {"ideal": 640},
-                "height": {"ideal": 480},
-                "frameRate": {"ideal": 15}
-            },
+            "video": {"width": 640, "height": 480, "frameRate": 15},
             "audio": False
         },
         async_processing=True
     )
     
+    # معالجة النتائج
     if ctx.video_processor:
-        result_placeholder = st.empty()
-        fps_placeholder = st.empty() if show_fps else None
-        last_time = time.time()
+        last_update = time.time()
+        fps = 0
         frame_count = 0
         
         while True:
             try:
-                if detect_emotions:
+                # عرض النتائج
+                if enable_detection:
                     try:
                         result = ctx.video_processor.emotion_queue.get(timeout=1.0)
-                        with result_placeholder.container():
-                            st.markdown(f"""
-                            <div class="st-emotion-box">
-                                <h3>Detected Emotion: <span style="color:#4CAF50">{result['emotion']}</span></h3>
-                                <p>Confidence: <strong>{result['score']:.2f}</strong></p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                        with result_container.container():
+                            st.success(f"**Detected Emotion:** {result['emotion']}")
+                            st.metric("Confidence", f"{result['score']*100:.1f}%")
                     except queue.Empty:
                         pass
                 
-                if show_fps:
+                # عرض إحصائيات الأداء
+                if show_stats:
                     frame_count += 1
-                    current_time = time.time()
-                    if current_time - last_time >= 1.0:
-                        fps = frame_count / (current_time - last_time)
-                        fps_placeholder.write(f"FPS: {fps:.1f}")
+                    if time.time() - last_update >= 1.0:
+                        fps = frame_count / (time.time() - last_update)
+                        with stats_container.container():
+                            st.caption(f"**Performance:** {fps:.1f} FPS")
                         frame_count = 0
-                        last_time = current_time
+                        last_update = time.time()
                         
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Application error: {str(e)}")
                 break
 
 if __name__ == "__main__":
