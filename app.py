@@ -9,59 +9,70 @@ import os
 # تعطيل تحذيرات TensorFlow غير الضرورية
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# إعداد RTC Configuration مع STUN و TURN server
+# إعداد RTC Configuration مع خوادم STUN وTURN متعددة
 RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [
-        {"urls": ["stun:stun.l.google.com:19302"]},
-        {
-            "urls": ["turn:openrelay.metered.ca:80", "turn:openrelay.metered.ca:443"],
-            "username": "openrelayproject",
-            "credential": "openrelayproject"
-        }
-    ]}
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+            # يمكن إضافة خادم TURN إذا لزم الأمر
+            # {
+            #     "urls": "turn:your-turn-server:3478",
+            #     "username": "your-username",
+            #     "credential": "your-password"
+            # }
+        ]
+    }
 )
 
 # إنشاء كائن الكشف عن المشاعر
-detector = FER(mtcnn=False)
+detector = FER(mtcnn=False)  # استخدام كاشف الوجوه الافتراضي
 
-# تعريف فئة لمعالجة الفيديو
+# تعريف فئة لمعالجة الإطارات
 class EmotionDetector(VideoProcessorBase):
     def __init__(self):
         self.detector = detector
 
     def recv(self, frame):
-        try:
-            # تحويل الإطار إلى صورة OpenCV
-            img = frame.to_ndarray(format="bgr24")
-            img = cv2.resize(img, (640, 480))
+        # تحويل الإطار إلى صيغة OpenCV (BGR)
+        img = frame.to_ndarray(format="bgr24")
+        img = cv2.resize(img, (640, 480))  # تقليل الدقة للأداء
 
-            # الكشف عن المشاعر
-            result = self.detector.detect_emotions(img)
+        # الكشف عن المشاعر
+        result = self.detector.detect_emotions(img)
 
-            # معالجة النتائج
-            for face in result:
-                x, y, w, h = face['box']
-                emotions = face['emotions']
-                # رسم مستطيل حول الوجه
-                cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                # طباعة أكثر شعور بارز
-                dominant_emotion = max(emotions, key=emotions.get)
-                cv2.putText(img, dominant_emotion, (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        # معالجة النتائج
+        for face in result:
+            # استخراج إحداثيات الوجه
+            x, y, w, h = face['box']
+            
+            # رسم مستطيل حول الوجه
+            cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            
+            # استخراج المشاعر
+            emotions = face['emotions']
+            dominant_emotion = max(emotions, key=emotions.get)
+            emotion_score = emotions[dominant_emotion]
+            
+            # عرض المشاعر على الإطار
+            text = f"{dominant_emotion}: {emotion_score:.2f}"
+            cv2.putText(img, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+        # إرجاع الإطار المعالج
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-        except Exception as e:
-            print(f"Error during frame processing: {e}")
-            return frame
+# إعداد واجهة Streamlit
+st.title("Real-Time Emotion Detection")
+st.write("This app detects emotions in real-time using your webcam.")
 
-# واجهة Streamlit
-st.title("🎭 Emotion Detection App")
-st.write("ابدأ الكاميرا وسنحاول التعرف على مشاعرك")
-
-# تشغيل الكاميرا ومعالجة الفيديو
+# إضافة مكون WebRTC
 webrtc_streamer(
     key="emotion-detection",
+    mode="sendrecv",  # متوافق مع streamlit-webrtc==0.47.7
+    rtc_configuration=RTC_CONFIGURATION,
     video_processor_factory=EmotionDetector,
-    rtc_configuration=RTC_CONFIGURATION
+    media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
+    async_processing=True,
+    # إضافة مهلة زمنية لتجنب التأخير
+    timeout=30
 )
