@@ -8,3 +8,4 @@ pyav==12.3.0
 protobuf==4.25.3
 altair==5.4.1
 rich==13.7.1
+moviepy==1.0.3
