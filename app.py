@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
 import cv2
 from fer import FER
 import numpy as np
@@ -59,12 +59,28 @@ class EmotionDetector(VideoProcessorBase):
 st.title("Real-Time Emotion Detection")
 st.write("This app detects emotions in real-time using your webcam.")
 
+# عرض إصدار streamlit-webrtc للتحقق
+import streamlit_webrtc
+st.write(f"streamlit-webrtc version: {streamlit_webrtc.__version__}")
+
 # إضافة مكون WebRTC
-webrtc_streamer(
-    key="emotion-detection",
-    mode="sendrecv",
-    rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=EmotionDetector,
-    media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
-    async_processing=True
-)
+try:
+    # محاولة استخدام mode كسلسلة نصية (للإصدارات الحديثة مثل 0.47.7)
+    webrtc_streamer(
+        key="emotion-detection",
+        mode="sendrecv",
+        rtc_configuration=RTC_CONFIGURATION,
+        video_processor_factory=EmotionDetector,
+        media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
+        async_processing=True
+    )
+except AttributeError:
+    # الرجوع إلى WebRtcMode للإصدارات القديمة (مثل 0.45.0)
+    webrtc_streamer(
+        key="emotion-detection",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=RTC_CONFIGURATION,
+        video_processor_factory=EmotionDetector,
+        media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
+        async_processing=True
+    )
