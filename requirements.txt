@@ -3,9 +3,11 @@ fer==22.5.1
 opencv-python==4.9.0.80
 numpy==1.26.4
 streamlit==1.39.0
-streamlit-webrtc==0.47.7
+streamlit-webrtc==0.45.0
 pyav==12.3.0
 protobuf==4.25.3
 altair==5.4.1
 rich==13.7.1
 moviepy==1.0.3
+aiortc==1.9.0
+aioice==0.9.0
