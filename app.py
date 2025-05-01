@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 import cv2
 from fer import FER
 import numpy as np
@@ -15,7 +15,7 @@ RTC_CONFIGURATION = RTCConfiguration(
 )
 
 # إنشاء كائن الكشف عن المشاعر
-detector = FER(mtcnn=True)
+detector = FER(mtcnn=False)  # استخدام كاشف الوجوه الافتراضي
 
 # تعريف فئة لمعالجة الإطارات
 class EmotionDetector(VideoProcessorBase):
@@ -25,6 +25,7 @@ class EmotionDetector(VideoProcessorBase):
     def recv(self, frame):
         # تحويل الإطار إلى صيغة OpenCV (BGR)
         img = frame.to_ndarray(format="bgr24")
+        img = cv2.resize(img, (640, 480))  # تقليل الدقة للأداء
 
         # الكشف عن المشاعر
         result = self.detector.detect_emotions(img)
@@ -56,9 +57,9 @@ st.write("This app detects emotions in real-time using your webcam.")
 # إضافة مكون WebRTC
 webrtc_streamer(
     key="emotion-detection",
-    mode=WebRtcMode.SENDRECV,
+    mode="sendrecv",
     rtc_configuration=RTC_CONFIGURATION,
     video_processor_factory=EmotionDetector,
-    media_stream_constraints={"video": True, "audio": False},
+    media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
     async_processing=True
 )
