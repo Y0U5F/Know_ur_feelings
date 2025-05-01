@@ -1,6 +1,5 @@
 import streamlit as st
 import cv2
-from fer import FER
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -8,9 +7,15 @@ import io
 import base64
 from PIL import Image
 import time
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import img_to_array
 
-# تعيين الجهاز المستخدم (CPU أو GPU)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# تعطيل تحذيرات TensorFlow
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
+# تعيين الجهاز المستخدم (CPU)
+device = torch.device('cpu')
 
 # إعداد صفحة Streamlit
 st.set_page_config(
@@ -146,7 +151,8 @@ st.title("كشف المشاعر في الوقت الفعلي")
 # إدارة حالة التطبيق
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
-    st.session_state.detector = None
+    st.session_state.model = None
+    st.session_state.face_cascade = None
     st.session_state.last_emotion = None
     st.session_state.last_score = None
     st.session_state.model_loaded = False
@@ -155,7 +161,8 @@ if 'is_running' not in st.session_state:
 if st.button("بدء الكشف عن المشاعر" if not st.session_state.is_running else "إيقاف الكشف عن المشاعر"):
     st.session_state.is_running = not st.session_state.is_running
     if not st.session_state.is_running:
-        st.session_state.detector = None
+        st.session_state.model = None
+        st.session_state.face_cascade = None
         st.session_state.last_emotion = None
         st.session_state.last_score = None
         st.session_state.model_loaded = False
@@ -167,8 +174,8 @@ loading_placeholder = st.empty()
 
 if st.session_state.is_running:
     try:
-        # إنشاء كائن الكشف عن المشاعر فقط عند بدء التشغيل
-        if st.session_state.detector is None:
+        # تحميل النموذج فقط عند بدء التشغيل
+        if st.session_state.model is None:
             with loading_placeholder.container():
                 st.markdown("""
                     <div class="loading-container">
@@ -185,8 +192,11 @@ if st.session_state.is_running:
                     time.sleep(0.05)  # محاكاة وقت التحميل
                     progress_bar.progress(i + 1)
                 
-                # إنشاء النموذج
-                st.session_state.detector = FER(mtcnn=True)
+                # تحميل نموذج الكشف عن الوجوه
+                st.session_state.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                
+                # تحميل نموذج المشاعر
+                st.session_state.model = load_model('emotion_model.h5')
                 st.session_state.model_loaded = True
                 
                 # إخفاء شريط التقدم
@@ -203,24 +213,36 @@ if st.session_state.is_running:
                 cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
                 
                 try:
-                    # الكشف عن المشاعر
-                    result = st.session_state.detector.detect_emotions(cv2_img)
+                    # تحويل الصورة إلى تدرجات الرمادي
+                    gray = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
                     
-                    if result:
-                        # معالجة النتائج
-                        for face in result:
-                            x, y, w, h = face['box']
+                    # الكشف عن الوجوه
+                    faces = st.session_state.face_cascade.detectMultiScale(gray, 1.3, 5)
+                    
+                    if len(faces) > 0:
+                        for (x, y, w, h) in faces:
+                            # رسم مستطيل حول الوجه
                             cv2.rectangle(cv2_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                            emotions = face['emotions']
-                            dominant_emotion = max(emotions, key=emotions.get)
-                            emotion_score = emotions[dominant_emotion]
+                            
+                            # استخراج منطقة الوجه
+                            roi_gray = gray[y:y+h, x:x+w]
+                            roi_gray = cv2.resize(roi_gray, (48, 48))
+                            roi = roi_gray.astype('float') / 255.0
+                            roi = img_to_array(roi)
+                            roi = np.expand_dims(roi, axis=0)
+                            
+                            # التنبؤ بالمشاعر
+                            predictions = st.session_state.model.predict(roi)[0]
+                            emotion_labels = ['غاضب', 'مشمئز', 'خائف', 'سعيد', 'حزين', 'مندهش', 'محايد']
+                            emotion = emotion_labels[np.argmax(predictions)]
+                            score = np.max(predictions)
                             
                             # تحديث حالة المشاعر
-                            st.session_state.last_emotion = dominant_emotion
-                            st.session_state.last_score = emotion_score
+                            st.session_state.last_emotion = emotion
+                            st.session_state.last_score = score
                             
                             # عرض النص على الصورة
-                            text = f"{dominant_emotion}: {emotion_score:.2f}"
+                            text = f"{emotion}: {score:.2f}"
                             cv2.putText(cv2_img, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
                         # تحويل الإطار إلى صيغة RGB لعرضه في Streamlit
@@ -250,7 +272,8 @@ if st.session_state.is_running:
     except Exception as e:
         st.error(f"خطأ في تهيئة نموذج الكشف عن المشاعر: {str(e)}")
         st.session_state.is_running = False
-        st.session_state.detector = None
+        st.session_state.model = None
+        st.session_state.face_cascade = None
         st.session_state.model_loaded = False
 else:
     video_placeholder.empty()
