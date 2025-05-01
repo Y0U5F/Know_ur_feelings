@@ -61,27 +61,11 @@ st.markdown("""
     .start-button.active {
         background-color: #f44336;
     }
-    .permission-button {
-        background-color: #2196F3;
-        color: white;
-        padding: 15px 30px;
-        border: none;
-        border-radius: 5px;
-        font-size: 18px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        margin-bottom: 20px;
-        width: 100%;
-        max-width: 300px;
-    }
-    .permission-button:hover {
-        background-color: #1976D2;
-    }
     @media (max-width: 600px) {
         .video-container {
             width: 100%;
         }
-        .start-button, .permission-button {
+        .start-button {
             width: 100%;
             padding: 12px 24px;
             font-size: 16px;
@@ -98,10 +82,10 @@ with st.sidebar:
     st.title("معلومات التطبيق")
     st.markdown("""
     ### تعليمات الاستخدام:
-    1. انقر على زر "طلب إذن الكاميرا" أولاً
-    2. انقر على زر "بدء الكشف عن المشاعر" لبدء الكشف
-    3. انقر على زر "إيقاف الكشف عن المشاعر" لإيقاف الكشف
-    4. تأكد من أن وجهك واضح في الكاميرا
+    1. انقر على زر "بدء الكشف عن المشاعر" لبدء الكشف
+    2. انقر على زر "إيقاف الكشف عن المشاعر" لإيقاف الكشف
+    3. تأكد من أن وجهك واضح في الكاميرا
+    4. يمكنك استخدام التطبيق على الهاتف المحمول
 
     ### ملاحظات مهمة:
     - تأكد من السماح للكاميرا في المتصفح
@@ -116,99 +100,57 @@ st.title("كشف المشاعر في الوقت الفعلي")
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
     st.session_state.detector = None
-    st.session_state.camera_permission = False
 
-# زر طلب إذن الكاميرا
-if not st.session_state.camera_permission:
-    if st.button("طلب إذن الكاميرا", key="permission_button", help="انقر هنا للسماح للتطبيق باستخدام الكاميرا"):
-        st.session_state.camera_permission = True
-        st.success("تم طلب إذن الكاميرا. يرجى السماح للكاميرا في المتصفح.")
-        st.info("""
-        ⚠️ يرجى اتباع الخطوات التالية:
-        1. انقر على زر السماح للكاميرا في المتصفح
-        2. انتظر حتى يتم تأكيد الإذن
-        3. انقر على زر "بدء الكشف عن المشاعر" لبدء الكشف
-        """)
-
-# زر البدء (يظهر فقط بعد الحصول على إذن الكاميرا)
-if st.session_state.camera_permission:
-    if st.button("بدء الكشف عن المشاعر" if not st.session_state.is_running else "إيقاف الكشف عن المشاعر"):
-        st.session_state.is_running = not st.session_state.is_running
-        if not st.session_state.is_running:
-            st.session_state.detector = None
+# زر البدء
+if st.button("بدء الكشف عن المشاعر" if not st.session_state.is_running else "إيقاف الكشف عن المشاعر"):
+    st.session_state.is_running = not st.session_state.is_running
+    if not st.session_state.is_running:
+        st.session_state.detector = None
 
 # منطقة عرض الفيديو
 video_placeholder = st.empty()
 
-# فتح الكاميرا
-if st.session_state.camera_permission and st.session_state.is_running:
+if st.session_state.is_running:
     try:
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            st.warning("""
-            ⚠️ لا يمكن الوصول إلى الكاميرا. يرجى التأكد من:
-            1. السماح للكاميرا في المتصفح
-            2. استخدام متصفح يدعم الوصول إلى الكاميرا
-            3. التأكد من أن الكاميرا متصلة وتعمل بشكل صحيح
+        # إنشاء كائن الكشف عن المشاعر فقط عند بدء التشغيل
+        if st.session_state.detector is None:
+            st.session_state.detector = FER(mtcnn=True)
+        
+        # استخدام ميزة الكاميرا المدمجة في Streamlit
+        img_file_buffer = st.camera_input("كاميرا الكشف عن المشاعر")
+        
+        if img_file_buffer is not None:
+            # قراءة الصورة من المخزن المؤقت
+            bytes_data = img_file_buffer.getvalue()
+            cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
             
-            يمكنك تجربة التطبيق على جهازك المحلي أو استخدام هاتفك المحمول.
-            """)
-            st.session_state.is_running = False
-            st.session_state.camera_permission = False
-    except Exception as e:
-        st.error(f"خطأ في الوصول إلى الكاميرا: {str(e)}")
-        st.session_state.is_running = False
-        st.session_state.camera_permission = False
-
-    if st.session_state.is_running:
-        try:
-            # إنشاء كائن الكشف عن المشاعر فقط عند بدء التشغيل
-            if st.session_state.detector is None:
-                st.session_state.detector = FER(mtcnn=True)
+            try:
+                # الكشف عن المشاعر
+                result = st.session_state.detector.detect_emotions(cv2_img)
                 
-            while st.session_state.is_running:
-                ret, frame = cap.read()
-                if not ret:
-                    st.error("خطأ: لا يمكن قراءة الإطار من الكاميرا")
-                    st.session_state.is_running = False
-                    break
+                # معالجة النتائج
+                for face in result:
+                    x, y, w, h = face['box']
+                    cv2.rectangle(cv2_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                    emotions = face['emotions']
+                    dominant_emotion = max(emotions, key=emotions.get)
+                    emotion_score = emotions[dominant_emotion]
+                    text = f"{dominant_emotion}: {emotion_score:.2f}"
+                    cv2.putText(cv2_img, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-                try:
-                    # تحويل الإطار إلى مصفوفة NumPy
-                    frame_np = np.array(frame, dtype=np.uint8)
-                    
-                    # الكشف عن المشاعر
-                    result = st.session_state.detector.detect_emotions(frame_np)
-                    
-                    # معالجة النتائج
-                    for face in result:
-                        x, y, w, h = face['box']
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                        emotions = face['emotions']
-                        dominant_emotion = max(emotions, key=emotions.get)
-                        emotion_score = emotions[dominant_emotion]
-                        text = f"{dominant_emotion}: {emotion_score:.2f}"
-                        cv2.putText(frame, text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                # تحويل الإطار إلى صيغة RGB لعرضه في Streamlit
+                frame_rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
+                video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
 
-                    # تحويل الإطار إلى صيغة RGB لعرضه في Streamlit
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+            except Exception as e:
+                st.error(f"خطأ في معالجة الإطار: {str(e)}")
 
-                except Exception as e:
-                    st.error(f"خطأ في معالجة الإطار: {str(e)}")
-                    continue
-
-        except Exception as e:
-            st.error(f"خطأ في تهيئة نموذج الكشف عن المشاعر: {str(e)}")
-            st.session_state.is_running = False
-            st.session_state.detector = None
-        finally:
-            if 'cap' in locals() and cap.isOpened():
-                cap.release()
-    else:
-        video_placeholder.empty()
-        if 'cap' in locals() and cap.isOpened():
-            cap.release()
+    except Exception as e:
+        st.error(f"خطأ في تهيئة نموذج الكشف عن المشاعر: {str(e)}")
+        st.session_state.is_running = False
+        st.session_state.detector = None
+else:
+    video_placeholder.empty()
 
 # إضافة معلومات إضافية في الأسفل
 st.markdown("""
