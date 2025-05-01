@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
 import cv2
 from fer import FER
 import numpy as np
@@ -57,7 +57,7 @@ st.write("This app detects emotions in real-time using your webcam.")
 # إضافة مكون WebRTC
 webrtc_streamer(
     key="emotion-detection",
-    mode="sendrecv",
+    mode=WebRtcMode.SENDRECV,  # استخدام WebRtcMode للتوافق مع streamlit-webrtc==0.45.0
     rtc_configuration=RTC_CONFIGURATION,
     video_processor_factory=EmotionDetector,
     media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
