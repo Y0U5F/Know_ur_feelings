@@ -9,7 +9,7 @@ import os
 # تعطيل تحذيرات TensorFlow غير الضرورية
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# إعداد RTC Configuration مع خوادم STUN وTURN متعددة
+# إعداد RTC Configuration مع خوادم STUN متعددة
 RTC_CONFIGURATION = RTCConfiguration(
     {
         "iceServers": [
@@ -66,6 +66,5 @@ webrtc_streamer(
     rtc_configuration=RTC_CONFIGURATION,
     video_processor_factory=EmotionDetector,
     media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
-    async_processing=True,
-    timeout=30
+    async_processing=True
 )
