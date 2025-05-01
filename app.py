@@ -110,7 +110,21 @@ if st.button("بدء الكشف عن المشاعر" if not st.session_state.is_
 video_placeholder = st.empty()
 
 # فتح الكاميرا
-cap = cv2.VideoCapture(0)
+try:
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.warning("""
+        ⚠️ لا يمكن الوصول إلى الكاميرا. يرجى التأكد من:
+        1. السماح للكاميرا في المتصفح
+        2. استخدام متصفح يدعم الوصول إلى الكاميرا
+        3. التأكد من أن الكاميرا متصلة وتعمل بشكل صحيح
+        
+        يمكنك تجربة التطبيق على جهازك المحلي أو استخدام هاتفك المحمول.
+        """)
+        st.session_state.is_running = False
+except Exception as e:
+    st.error(f"خطأ في الوصول إلى الكاميرا: {str(e)}")
+    st.session_state.is_running = False
 
 if st.session_state.is_running:
     try:
@@ -122,6 +136,7 @@ if st.session_state.is_running:
             ret, frame = cap.read()
             if not ret:
                 st.error("خطأ: لا يمكن قراءة الإطار من الكاميرا")
+                st.session_state.is_running = False
                 break
 
             try:
@@ -154,10 +169,11 @@ if st.session_state.is_running:
         st.session_state.is_running = False
         st.session_state.detector = None
     finally:
-        cap.release()
+        if 'cap' in locals() and cap.isOpened():
+            cap.release()
 else:
     video_placeholder.empty()
-    if cap.isOpened():
+    if 'cap' in locals() and cap.isOpened():
         cap.release()
 
 # إضافة معلومات إضافية في الأسفل
@@ -167,4 +183,9 @@ st.markdown("""
     - متوافق مع كاميرات الهواتف الأمامية والخلفية
     - واجهة مستخدم متجاوبة مع جميع أحجام الشاشات
     - يعمل على iOS و Android
-""") 
+    
+    ### ملاحظة مهمة:
+    - للتجربة على Streamlit Cloud، يرجى استخدام هاتفك المحمول
+    - تأكد من السماح للكاميرا في متصفح هاتفك
+    - استخدم كاميرا الهاتف الأمامية للحصول على أفضل النتائج
+""")
