@@ -9,13 +9,13 @@ import os
 # تعطيل تحذيرات TensorFlow غير الضرورية
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# إعداد RTC Configuration مع خوادم STUN وخيار لإضافة TURN
+# إعداد RTC Configuration مع خوادم STUN وTURN
 RTC_CONFIGURATION = RTCConfiguration(
     {
         "iceServers": [
             {"urls": ["stun:stun.l.google.com:19302"]},
             {"urls": ["stun:stun1.l.google.com:19302"]}
-            # إذا استمرت مشكلة الاتصال، أضف خادم TURN (مثال):
+            # أضف خادم TURN هنا (احصل على بيانات من Twilio أو Xirsys):
             # {
             #     "urls": ["turn:turn.example.com:3478"],
             #     "username": "your-username",
