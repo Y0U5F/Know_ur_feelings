@@ -14,13 +14,7 @@ RTC_CONFIGURATION = RTCConfiguration(
     {
         "iceServers": [
             {"urls": ["stun:stun.l.google.com:19302"]},
-            {"urls": ["stun:stun1.l.google.com:19302"]},
-            # يمكن إضافة خادم TURN إذا لزم الأمر
-            # {
-            #     "urls": "turn:your-turn-server:3478",
-            #     "username": "your-username",
-            #     "credential": "your-password"
-            # }
+            {"urls": ["stun:stun1.l.google.com:19302"]}
         ]
     }
 )
@@ -68,11 +62,10 @@ st.write("This app detects emotions in real-time using your webcam.")
 # إضافة مكون WebRTC
 webrtc_streamer(
     key="emotion-detection",
-    mode="sendrecv",  # متوافق مع streamlit-webrtc==0.47.7
+    mode="sendrecv",
     rtc_configuration=RTC_CONFIGURATION,
     video_processor_factory=EmotionDetector,
     media_stream_constraints={"video": {"frameRate": 15}, "audio": False},
     async_processing=True,
-    # إضافة مهلة زمنية لتجنب التأخير
     timeout=30
 )
